@@ -1,10 +1,10 @@
 // src/routes/settings.routes.ts
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
-import { validate } from '../middleware/validate.js';
-import { asyncHandler } from '../utils/async-handler.js';
-import * as ctrl from '../controllers/settings.controller.js';
+import { authenticate, requireAdmin } from '../middleware/auth.middleware.ts';
+import { validate } from '../middleware/validate.ts';
+import { asyncHandler } from '../utils/async-handler.ts';
+import * as ctrl from '../controllers/settings.controller.ts';
 
 const envVariableUpdate = z.object({ value: z.string() });
 

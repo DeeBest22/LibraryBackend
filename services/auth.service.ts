@@ -1,5 +1,6 @@
 // src/services/auth.service.ts
-import prisma from "../config/prisma";
+
+import { db as prisma } from "../config/prisma.ts";
 import { createAccessToken } from "../config/auth.util"; // still unfinished — see handoff
 import { env } from "../config/env";
 

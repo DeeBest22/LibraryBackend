@@ -1,9 +1,9 @@
 // src/routes/entities.routes.ts
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth.middleware.js'; // added — Python source had NO auth here, see flag
-import { asyncHandler } from '../utils/async-handler.js';
-import { makeCrudController } from '../controllers/generic-crud.controller.js';
-import { db } from '../config/prisma.js';
+import { authenticate } from '../middleware/auth.middleware.ts'; // added — Python source had NO auth here, see flag
+import { asyncHandler } from '../utils/async-handler.ts';
+import { makeCrudController } from '../controllers/generic-crud.controller.ts';
+import { db } from '../config/prisma.ts';
 
 function buildEntityRouter(delegate: any, entityName: string): Router {
   const ctrl = makeCrudController(delegate, entityName);

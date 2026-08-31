@@ -1,8 +1,8 @@
 // src/routes/storage.routes.ts
 import { Router } from 'express';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
-import { asyncHandler } from '../utils/async-handler.js';
-import * as ctrl from '../controllers/storage.controller.js';
+import { authenticate, requireAdmin } from '../middleware/auth.middleware.ts';
+import { asyncHandler } from '../utils/async-handler.ts';
+import * as ctrl from '../controllers/storage.controller.ts';
 // Zod schemas for BucketRequest/ObjectRequest/RenameRequest/FileUpDownRequest
 // depend on schemas/storage.py, not yet sent — validate() calls added once that lands.
 

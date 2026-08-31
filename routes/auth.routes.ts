@@ -1,10 +1,10 @@
 // src/routes/auth.routes.ts
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate } from '../middleware/auth.middleware.js';
-import { validate } from '../middleware/validate.js';
-import { asyncHandler } from '../utils/async-handler.js';
-import * as ctrl from '../controllers/auth.controller.js';
+import { authenticate } from '../middleware/auth.middleware.ts';
+import { validate } from '../middleware/validate.ts';
+import { asyncHandler } from '../utils/async-handler.ts';
+import * as ctrl from '../controllers/auth.controller.ts';
 
 const platformTokenExchange = z.object({ platform_token: z.string().min(1) });
 

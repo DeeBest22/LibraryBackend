@@ -1,6 +1,6 @@
 // src/services/library.service.ts
 import { Prisma } from "@prisma/client";
-import prisma from "../config/prisma";
+import { db as prisma } from "../config/prisma.ts";
 import { AppError } from "../middleware/error-handler";
 import {
   LOAN_PERIOD_DAYS,

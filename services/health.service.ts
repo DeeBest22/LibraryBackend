@@ -1,5 +1,5 @@
 // src/services/health.service.ts
-import prisma from "../config/prisma";
+import { db as prisma } from "../config/prisma.ts";
 
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {

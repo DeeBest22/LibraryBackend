@@ -1,5 +1,5 @@
 // src/services/user.service.ts
-import prisma from "../config/prisma";
+import { db as prisma } from "../config/prisma.ts";
 
 export async function getUserProfile(userId: string) {
   return prisma.user.findUnique({ where: { id: userId } });

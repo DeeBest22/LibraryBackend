@@ -1,10 +1,10 @@
 // src/routes/library.routes.ts
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
-import { validate } from '../middleware/validate.js';
-import { asyncHandler } from '../utils/async-handler.js';
-import * as ctrl from '../controllers/library.controller.js';
-import * as schemas from '../schemas/library.schemas.js';
+import { authenticate } from '../middleware/auth.middleware.ts';
+import { validate } from '../middleware/validate.ts';
+import { asyncHandler } from '../utils/async-handler.ts';
+import * as ctrl from '../controllers/library.controller.ts';
+import * as schemas from '../schemas/library.schemas.ts';
 
 const router = Router();
 router.use(authenticate);
