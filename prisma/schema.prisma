@@ -1,0 +1,94 @@
+  // prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---- from models/auth.py ----------------------------------------------
+
+model User {
+  id         String    @id @db.VarChar(255) // platform OIDC `sub`, not auto-generated
+  email      String    @db.VarChar(255)
+  name       String?   @db.VarChar(255)
+  role       String    @default("user") @db.VarChar(50) // "user" | "admin"
+  created_at DateTime  @default(now()) @db.Timestamptz
+  last_login DateTime? @db.Timestamptz
+
+  @@map("users")
+}
+
+model OidcState {
+  id             Int      @id @default(autoincrement())
+  state          String   @unique @db.VarChar(255)
+  nonce          String   @db.VarChar(255)
+  code_verifier  String   @db.VarChar(255)
+  expires_at     DateTime @db.Timestamptz
+  created_at     DateTime @default(now()) @db.Timestamptz
+
+  @@map("oidc_states")
+}
+
+// ---- from models/books.py ----------------------------------------------
+
+model Book {
+  id                 Int       @id @default(autoincrement())
+  title              String    @db.VarChar(300)
+  author             String    @db.VarChar(200)
+  accession_number   String    @db.VarChar(60)
+  isbn               String?   @db.VarChar(40)
+  publisher          String?   @db.VarChar(200)
+  publication_year   Int?
+  category           String?   @db.VarChar(100)
+  total_copies       Int
+  available_copies   Int       // rule #5: mutate only inside $transaction
+  cover_image_url    String?   @db.VarChar(500)
+  created_at         DateTime  @default(now()) @db.Timestamptz
+  updated_at         DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  @@map("books")
+}
+
+// ---- from models/borrow_transactions.py --------------------------------
+
+model BorrowTransaction {
+  id           Int       @id @default(autoincrement())
+  member_id    Int       // no declared FK in the Python source — preserved as-is
+  book_id      Int       // no declared FK in the Python source — preserved as-is
+  borrow_date  DateTime  @db.Timestamptz
+  due_date     DateTime  @db.Timestamptz
+  return_date  DateTime? @db.Timestamptz
+  status       String    @db.VarChar(20)
+  fine_amount  Float?
+  created_at   DateTime  @default(now()) @db.Timestamptz
+  updated_at   DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  @@index([member_id])
+  @@index([book_id])
+  @@map("borrow_transactions")
+}
+
+// ---- from models/members.py ---------------------------------------------
+
+model Member {
+  id             Int      @id @default(autoincrement())
+  auth_user_id   String?  @db.VarChar(120) // loosely linked to User.id, no FK/unique constraint
+  email          String   @db.VarChar(200)
+  username       String?  @db.VarChar(100)
+  first_name     String   @db.VarChar(100)
+  last_name      String   @db.VarChar(100)
+  matric_number  String?  @db.VarChar(40)
+  department     String?  @db.VarChar(150)
+  level          String?  @db.VarChar(20)
+  role           String   @db.VarChar(20)
+  status         String   @db.VarChar(30)
+  created_at     DateTime @default(now()) @db.Timestamptz
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  @@index([auth_user_id])
+  @@map("members")
+}
