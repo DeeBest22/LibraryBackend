@@ -44,7 +44,7 @@ export const memberUpdateSchema = z.object({
 
 export const borrowRequestSchema = z.object({
   book_id: z.number().int(),
-  member_id: z.number().int().optional(),
+member_id: z.number().int().nullable().optional(),
 });
 
 export const returnRequestSchema = z.object({

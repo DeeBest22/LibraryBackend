@@ -1,4 +1,5 @@
 // src/config/prisma.ts
+import 'dotenv/config';
 import { PrismaClient } from '../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { queryTimingExtension } from '../telemetry/prisma-timing.ts';

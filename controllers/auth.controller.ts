@@ -7,12 +7,13 @@ import {
   generateCodeChallenge,
   buildAuthorizationUrl,
   buildLogoutUrl,
+  getTokenEndpoint,
   validateIdToken,
   IDTokenValidationError,
-} from '../config/auth.util.ts';
-import { env } from '../config/env.ts';
-import { getOrCreateUser, issueAppToken, storeOidcState, getAndDeleteOidcState } from '../services/auth.service.ts';
-import { AppError } from '../middleware/error-handler.ts';
+} from '../config/auth.util.js';
+import { env } from '../config/env.js';
+import { getOrCreateUser, issueAppToken, storeOidcState, getAndDeleteOidcState } from '../services/auth.service.js';
+import { AppError } from '../middleware/error-handler.js';
 
 type Response2 = globalThis.Response;
 
@@ -25,7 +26,9 @@ function getDynamicBackendUrl(req: Request): string {
   const mgxExternalDomain = req.headers['mgx-external-domain'] as string | undefined;
   const xForwardedHost = req.headers['x-forwarded-host'] as string | undefined;
   const host = req.headers['host'];
-  const scheme = (req.headers['x-forwarded-proto'] as string | undefined) ?? 'https';
+  const scheme =
+    (req.headers['x-forwarded-proto'] as string | undefined) ??
+    (env.NODE_ENV === 'development' ? 'http' : 'https');
 
   const effectiveHost = mgxExternalDomain || xForwardedHost || host;
   if (!effectiveHost) return env.BACKEND_URL;
@@ -48,7 +51,7 @@ export async function login(req: Request, res: Response): Promise<void> {
   const backendUrl = getDynamicBackendUrl(req);
   const redirectUri = `${backendUrl}/api/v1/auth/callback`;
 
-  const authUrl = buildAuthorizationUrl(state, nonce, codeChallenge, redirectUri);
+  const authUrl = await buildAuthorizationUrl(state, nonce, codeChallenge, redirectUri);
   res.setHeader('X-Request-ID', state);
   res.redirect(302, authUrl);
 }
@@ -59,7 +62,7 @@ export async function callback(req: Request, res: Response): Promise<void> {
 
   const redirectWithError = (message: string) => {
     const fragment = new URLSearchParams({ msg: message }).toString();
-    res.redirect(302, `${backendUrl}/auth/error?${fragment}`);
+    res.redirect(302, `${env.FRONTEND_URL}/auth/error?${fragment}`);
   };
 
   if (error) return redirectWithError(`OIDC error: ${error}`);
@@ -82,7 +85,13 @@ export async function callback(req: Request, res: Response): Promise<void> {
     };
     if (codeVerifier) tokenData.code_verifier = codeVerifier;
 
-    const tokenUrl = `${env.OIDC_ISSUER_URL}/token`;
+    let tokenUrl: string;
+    try {
+      tokenUrl = await getTokenEndpoint();
+    } catch (e) {
+      return redirectWithError(`Could not reach identity provider: ${(e as Error).message}`);
+    }
+
     let tokenResponse: Response2;
     try {
       tokenResponse = await fetch(tokenUrl, {
@@ -119,7 +128,7 @@ export async function callback(req: Request, res: Response): Promise<void> {
       token_type: 'Bearer',
     }).toString();
 
-    res.redirect(302, `${backendUrl}/auth/callback?${fragment}`);
+    res.redirect(302, `${env.FRONTEND_URL}/auth/callback?${fragment}`);
   } catch (e) {
     if (e instanceof IDTokenValidationError) {
       return redirectWithError(`Authentication failed: ${e.message}`);
@@ -188,5 +197,5 @@ export async function getCurrentUserInfo(req: Request, res: Response): Promise<v
 }
 
 export async function logout(_req: Request, res: Response): Promise<void> {
-  res.status(200).json({ redirect_url: buildLogoutUrl() });
+  res.status(200).json({ redirect_url: await buildLogoutUrl() });
 }

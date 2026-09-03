@@ -15,15 +15,50 @@ export function generateNonce(): string {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-// Preserved exactly from Python: 96 random bytes (the Python docstring calls
-// this "128 bytes base64url encoded", but that's a stale comment describing
-// the *output length*, not the input — actual entropy is 96 bytes either way).
 export function generateCodeVerifier(): string {
   return crypto.randomBytes(96).toString('base64url');
 }
 
 export function generateCodeChallenge(codeVerifier: string): string {
   return crypto.createHash('sha256').update(codeVerifier, 'utf8').digest('base64url');
+}
+
+// --------------------------------------------------------------------------
+// OIDC discovery — replaces hardcoded /authorize, /token, /logout paths.
+// These paths differ per provider (e.g. Auth0 uses /oauth/token, not /token,
+// which is what caused the last error) — discovery reads the real ones.
+// --------------------------------------------------------------------------
+interface OidcDiscovery {
+  authorization_endpoint: string;
+  token_endpoint: string;
+   issuer: string;
+  end_session_endpoint?: string;
+  jwks_uri: string;
+}
+
+let discoveryCache: OidcDiscovery | null = null;
+let discoveryFetchedAt = 0;
+const DISCOVERY_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function getOidcDiscovery(): Promise<OidcDiscovery> {
+  const now = Date.now();
+  if (discoveryCache && now - discoveryFetchedAt < DISCOVERY_TTL_MS) {
+    return discoveryCache;
+  }
+  const url = `${env.OIDC_ISSUER_URL}/.well-known/openid-configuration`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch OIDC discovery document from ${url}: ${res.status}`);
+  }
+  const doc = (await res.json()) as OidcDiscovery;
+  discoveryCache = doc;
+  discoveryFetchedAt = now;
+  return doc;
+}
+
+export async function getTokenEndpoint(): Promise<string> {
+  const discovery = await getOidcDiscovery();
+  return discovery.token_endpoint;
 }
 
 // --------------------------------------------------------------------------
@@ -98,10 +133,6 @@ export function decodeAccessToken(token: string): jwt.JwtPayload {
 
 // --------------------------------------------------------------------------
 // OIDC ID token validation (RS256 via JWKS)
-// jwks-rsa handles JWK -> PEM conversion + caching internally, replacing
-// Python's manual RSA-component math and its own get_jwks() fetch/timeout
-// handling. That specific 60s-timeout/logging detail from get_jwks() isn't
-// separately reproduced here — jwks-rsa owns its own fetch behavior.
 // --------------------------------------------------------------------------
 const jwks = jwksClient({
   jwksUri: `${env.OIDC_ISSUER_URL}/.well-known/jwks.json`,
@@ -136,20 +167,17 @@ export async function validateIdToken(
   try {
     publicKey = await getSigningKey(kid);
   } catch (e) {
-    // jwks-rsa surfaces both "fetch failed" and "no key for this kid" through
-    // the same error path — Python distinguished jwks_fetch_error vs
-    // key_not_found here; collapsed to key_not_found as the more specific,
-    // more common case. Flag if the distinction matters downstream.
     console.error(
       `ID token validation failed: could not resolve signing key ${kid} from ${env.OIDC_ISSUER_URL}: ${(e as Error).message}`,
     );
     throw new IDTokenValidationError('Authentication key validation failed', 'key_not_found');
   }
-
+ const discovery = await getOidcDiscovery();
   try {
     const payload = jwt.verify(idToken, publicKey, {
       algorithms: ['RS256'],
-      issuer: env.OIDC_ISSUER_URL,
+      issuer: discovery.issuer,
+      
       audience: env.OIDC_CLIENT_ID,
     }) as jwt.JwtPayload;
 
@@ -187,14 +215,15 @@ export async function validateIdToken(
 }
 
 // --------------------------------------------------------------------------
-// Authorization / logout URL builders
+// Authorization / logout URL builders — now async, using discovery
 // --------------------------------------------------------------------------
-export function buildAuthorizationUrl(
+export async function buildAuthorizationUrl(
   state: string,
   nonce: string,
   codeChallenge?: string,
   redirectUri?: string,
-): string {
+): Promise<string> {
+  const discovery = await getOidcDiscovery();
   const params = new URLSearchParams({
     client_id: env.OIDC_CLIENT_ID,
     response_type: 'code',
@@ -207,13 +236,22 @@ export function buildAuthorizationUrl(
     params.set('code_challenge', codeChallenge);
     params.set('code_challenge_method', 'S256');
   }
-  return `${env.OIDC_ISSUER_URL}/authorize?${params.toString()}`;
+  return `${discovery.authorization_endpoint}?${params.toString()}`;
 }
 
-export function buildLogoutUrl(idToken?: string): string {
+export async function buildLogoutUrl(idToken?: string): Promise<string> {
+  let endSessionEndpoint: string;
+  try {
+    const discovery = await getOidcDiscovery();
+    endSessionEndpoint = discovery.end_session_endpoint ?? `${env.OIDC_ISSUER_URL}/v2/logout`;
+  } catch {
+    endSessionEndpoint = `${env.OIDC_ISSUER_URL}/v2/logout`;
+  }
+
   const params = new URLSearchParams({
     post_logout_redirect_uri: `${env.FRONTEND_URL}/logout-callback`,
   });
   if (idToken) params.set('id_token_hint', idToken);
-  return `${env.OIDC_ISSUER_URL}/logout?${params.toString()}`;
+  params.set('client_id', env.OIDC_CLIENT_ID);
+  return `${endSessionEndpoint}?${params.toString()}`;
 }

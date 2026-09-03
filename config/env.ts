@@ -11,6 +11,20 @@ const envSchema = z.object({
   JWT_EXPIRE_MINUTES: z.coerce.number().default(60),
   FRONTEND_URL: z.string().default('http://127.0.0.1:3000'),
   BACKEND_URL: z.string().default('http://127.0.0.1:8000'),
+
+  // OIDC identity provider used for /api/v1/auth/login|callback. Required for
+  // sign-in to work — without these, buildAuthorizationUrl()/validateIdToken()
+  // silently operate on `undefined` and login will fail.
+  OIDC_CLIENT_ID: z.string().default(''),
+  OIDC_CLIENT_SECRET: z.string().default(''),
+  OIDC_ISSUER_URL: z.string().default(''),
+  OIDC_SCOPE: z.string().default('openid profile email'),
+
+  // Optional: bootstraps a platform-level admin User row on startup.
+  // (The library's own admin role is separately self-bootstrapped the first
+  // time anyone signs in — see bootstrapAdminIfEmpty in library.service.ts.)
+  ADMIN_USER_ID: z.string().default(''),
+  ADMIN_USER_EMAIL: z.string().default(''),
 });
 
 const parsed = envSchema.safeParse(process.env);

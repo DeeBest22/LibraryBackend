@@ -1,7 +1,10 @@
 // src/controllers/library.controller.ts
 import { Request, Response } from 'express';
 import * as lib from '../services/library.service.ts'; // pending: services/library.py not yet sent
-
+import {
+  LOAN_PERIOD_DAYS, FINE_PER_DAY, MAX_ACTIVE_BORROWS,
+  ROLE_ADMIN, ROLE_USER, STATUS_ACTIVE, STATUS_PENDING,
+} from '../config/constants.js';
 export async function getSession(req: Request, res: Response): Promise<void> {
   let member = await lib.resolveMember(req.user!);
   if (!member) member = await lib.bootstrapAdminIfEmpty(req.user!);
@@ -29,33 +32,23 @@ export async function getSession(req: Request, res: Response): Promise<void> {
   res.status(200).json(payload);
 }
 
+// src/controllers/library.controller.ts — selfRegister function
 export async function selfRegister(req: Request, res: Response): Promise<void> {
   const data = req.validated!.body as {
     first_name: string; last_name: string; matric_number: string; department: string; level: string;
   };
 
   const clientIp = req.ip ?? 'unknown';
-  await lib.rateLimit(`register:${clientIp}`, { limit: 8, windowSeconds: 300 });
+  lib.rateLimit(`register:${clientIp}`, 8, 300);
 
   const existing = await lib.resolveMember(req.user!);
-  if (existing) {
-    throw lib.libraryError(409, 'ALREADY_REGISTERED', 'A library profile already exists for this account.');
-  }
-  if (!req.user!.email) {
-    throw lib.libraryError(400, 'NO_EMAIL', 'Your sign-in account has no e-mail address.');
-  }
+  if (existing) throw new AppError(409, 'ALREADY_REGISTERED', 'A library profile already exists for this account.');
+  if (!req.user!.email) throw new AppError(400, 'NO_EMAIL', 'Your sign-in account has no e-mail address.');
 
   const created = await lib.createMember(
-    {
-      auth_user_id: String(req.user!.id),
-      email: req.user!.email,
-      first_name: data.first_name,
-      last_name: data.last_name,
-      matric_number: data.matric_number,
-      department: data.department,
-      level: data.level,
-    },
-    { status: lib.STATUS_PENDING, role: lib.ROLE_USER },
+    { auth_user_id: String(req.user!.id), email: req.user!.email, ...data },
+    STATUS_PENDING,
+    ROLE_USER,
   );
   res.status(200).json({ member: created, message: 'Registration submitted for librarian approval.' });
 }
