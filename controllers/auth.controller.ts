@@ -12,7 +12,7 @@ import {
   IDTokenValidationError,
 } from '../config/auth.util.js';
 import { env } from '../config/env.js';
-import { getOrCreateUser, issueAppToken, storeOidcState, getAndDeleteOidcState } from '../services/auth.service.js';
+import { getOrCreateUser, getOrCreateLocalAdminUser, issueAppToken, storeOidcState, getAndDeleteOidcState } from '../services/auth.service.js';
 import { AppError } from '../middleware/error-handler.js';
 
 type Response2 = globalThis.Response;
@@ -190,6 +190,29 @@ export async function exchangePlatformToken(req: Request, res: Response): Promis
   });
 
   res.status(200).json({ token: appToken });
+}
+
+/**
+ * Simple username/password login for the admin/librarian — an alternative to
+ * the OIDC flow above for when you don't have an identity provider set up
+ * yet. Configure real credentials via ADMIN_LOGIN_USERNAME/ADMIN_LOGIN_PASSWORD
+ * in .env; defaults are admin / ChangeMe123! (see config/env.ts).
+ */
+export async function adminLogin(req: Request, res: Response): Promise<void> {
+  const { username, password } = req.validated!.body as { username: string; password: string };
+
+  if (username !== env.ADMIN_LOGIN_USERNAME || password !== env.ADMIN_LOGIN_PASSWORD) {
+    throw new AppError(401, 'INVALID_CREDENTIALS', 'Incorrect username or password');
+  }
+
+  const user = await getOrCreateLocalAdminUser(username);
+  const { token, expiresAt } = await issueAppToken(user);
+
+  res.status(200).json({
+    token,
+    expires_at: Math.floor(expiresAt.getTime() / 1000),
+    token_type: 'Bearer',
+  });
 }
 
 export async function getCurrentUserInfo(req: Request, res: Response): Promise<void> {

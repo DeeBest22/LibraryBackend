@@ -1,6 +1,7 @@
 // src/controllers/library.controller.ts
 import { Request, Response } from 'express';
 import * as lib from '../services/library.service.ts'; // pending: services/library.py not yet sent
+import { AppError } from '../middleware/error-handler.ts';
 import {
   LOAN_PERIOD_DAYS, FINE_PER_DAY, MAX_ACTIVE_BORROWS,
   ROLE_ADMIN, ROLE_USER, STATUS_ACTIVE, STATUS_PENDING,
@@ -10,9 +11,9 @@ export async function getSession(req: Request, res: Response): Promise<void> {
   if (!member) member = await lib.bootstrapAdminIfEmpty(req.user!);
 
   const config = {
-    loanPeriodDays: lib.LOAN_PERIOD_DAYS,
-    finePerDay: lib.FINE_PER_DAY,
-    borrowLimit: lib.MAX_ACTIVE_BORROWS,
+    loanPeriodDays: LOAN_PERIOD_DAYS,
+    finePerDay: FINE_PER_DAY,
+    borrowLimit: MAX_ACTIVE_BORROWS,
   };
   const account = { email: req.user!.email, name: req.user!.name };
 
@@ -28,7 +29,7 @@ export async function getSession(req: Request, res: Response): Promise<void> {
     config,
     account,
   };
-  payload.activeBorrows = member.status === lib.STATUS_ACTIVE ? await lib.activeBorrowCount(member.id) : 0;
+  payload.activeBorrows = member.status === STATUS_ACTIVE ? await lib.activeBorrowCount(member.id) : 0;
   res.status(200).json(payload);
 }
 
@@ -59,7 +60,7 @@ export async function getBooks(req: Request, res: Response): Promise<void> {
   };
 
   const member = await lib.resolveMember(req.user!);
-  if (!member || member.role !== lib.ROLE_ADMIN) {
+  if (!member || member.role !== ROLE_ADMIN) {
     lib.requireActiveMember(member);
   }
 
@@ -68,7 +69,7 @@ export async function getBooks(req: Request, res: Response): Promise<void> {
 
   if (member) {
     (result as Record<string, unknown>).activeBorrows = await lib.activeBorrowCount(member.id);
-    (result as Record<string, unknown>).borrowLimit = lib.MAX_ACTIVE_BORROWS;
+    (result as Record<string, unknown>).borrowLimit = MAX_ACTIVE_BORROWS;
     const openTxns = await lib.listTransactions({ memberId: member.id, status: 'ACTIVE' });
     (result as Record<string, unknown>).myOpenBookIds = openTxns.map((t) => t.bookId);
   }
@@ -104,8 +105,8 @@ export async function adminListMembers(req: Request, res: Response): Promise<voi
 export async function adminCreateMember(req: Request, res: Response): Promise<void> {
   lib.requireAdmin(await lib.resolveMember(req.user!));
   const { role: requestedRole, ...rest } = req.validated!.body as { role?: string; [k: string]: unknown };
-  const role = requestedRole === lib.ROLE_ADMIN || requestedRole === lib.ROLE_USER ? requestedRole : lib.ROLE_USER;
-  const created = await lib.createMember(rest, { status: lib.STATUS_ACTIVE, role });
+  const role = requestedRole === ROLE_ADMIN || requestedRole === ROLE_USER ? requestedRole : ROLE_USER;
+  const created = await lib.createMember(rest, STATUS_ACTIVE, role);
   res.status(200).json({ member: created });
 }
 
@@ -114,8 +115,8 @@ export async function adminUpdateMember(req: Request, res: Response): Promise<vo
   const memberId = Number(req.params.memberId);
   const data = req.validated!.body as Record<string, unknown>;
 
-  if (admin.id === memberId && data.status && data.status !== lib.STATUS_ACTIVE) {
-    throw lib.libraryError(400, 'SELF_DEACTIVATION', 'You cannot deactivate your own account.');
+  if (admin.id === memberId && data.status && data.status !== STATUS_ACTIVE) {
+    throw new AppError(400, 'SELF_DEACTIVATION', 'You cannot deactivate your own account.');
   }
   const payload = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null));
   res.status(200).json({ member: await lib.updateMember(memberId, payload) });
@@ -125,7 +126,7 @@ export async function adminDeleteMember(req: Request, res: Response): Promise<vo
   const admin = lib.requireAdmin(await lib.resolveMember(req.user!));
   const memberId = Number(req.params.memberId);
   if (admin.id === memberId) {
-    throw lib.libraryError(400, 'SELF_DELETION', 'You cannot delete your own account.');
+    throw new AppError(400, 'SELF_DELETION', 'You cannot delete your own account.');
   }
   await lib.deleteMember(memberId);
   res.status(200).json({ deleted: memberId });
@@ -157,13 +158,13 @@ export async function recordReturn(req: Request, res: Response): Promise<void> {
   const data = req.validated!.body as { transaction_id: number };
   const member = await lib.resolveMember(req.user!);
   if (!member) {
-    throw lib.libraryError(403, 'NO_PROFILE', 'No library profile is linked to this account.');
+    throw new AppError(403, 'NO_PROFILE', 'No library profile is linked to this account.');
   }
-  if (member.role !== lib.ROLE_ADMIN) {
+  if (member.role !== ROLE_ADMIN) {
     lib.requireActiveMember(member);
     const mine = await lib.listTransactions({ memberId: member.id, status: 'ACTIVE' });
     if (!mine.some((t) => t.id === data.transaction_id)) {
-      throw lib.libraryError(403, 'FORBIDDEN', 'You can only return books borrowed on your account.');
+      throw new AppError(403, 'FORBIDDEN', 'You can only return books borrowed on your account.');
     }
   }
   // rule #5: lib.returnBook must wrap its available_copies increment +
@@ -180,7 +181,7 @@ export async function myTransactions(req: Request, res: Response): Promise<void>
     items,
     stats: {
       activeBorrows: active.length,
-      borrowLimit: lib.MAX_ACTIVE_BORROWS,
+      borrowLimit: MAX_ACTIVE_BORROWS,
       dueSoon: active.filter((t) => t.daysRemaining !== null && t.daysRemaining >= 0 && t.daysRemaining <= 3).length,
       overdue: active.filter((t) => t.isOverdue).length,
       totalFines: Math.round(items.reduce((sum, t) => sum + t.fineAmount, 0) * 100) / 100,
