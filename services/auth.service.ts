@@ -46,6 +46,28 @@ export async function getAndDeleteOidcState(state: string) {
   return data;
 }
 
+/**
+ * Used by POST /api/v1/auth/admin-login. Unlike getOrCreateUser (which always
+ * creates new accounts as role="user"), this always creates/keeps role="admin"
+ * and uses a stable, deterministic id so repeated logins reuse the same row.
+ */
+export async function getOrCreateLocalAdminUser(username: string) {
+  const id = `local-admin:${username.toLowerCase()}`;
+  const email = `${username.toLowerCase()}@local.admin`;
+  const lastLogin = new Date();
+
+  const existing = await prisma.user.findUnique({ where: { id } });
+  if (existing) {
+    return prisma.user.update({
+      where: { id },
+      data: { last_login: lastLogin, role: 'admin' },
+    });
+  }
+  return prisma.user.create({
+    data: { id, email, name: 'Administrator', last_login: lastLogin, role: 'admin' },
+  });
+}
+
 /** Idempotent admin bootstrap — call once at server startup. */
 export async function initializeAdminUser() {
   if (process.env.MGX_IGNORE_INIT_ADMIN) return;
