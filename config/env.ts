@@ -25,6 +25,11 @@ const envSchema = z.object({
   // time anyone signs in — see bootstrapAdminIfEmpty in library.service.ts.)
   ADMIN_USER_ID: z.string().default(''),
   ADMIN_USER_EMAIL: z.string().default(''),
+
+  // Simple username/password login for the admin/librarian, bypassing OIDC.
+  // CHANGE THESE in production — see /api/v1/auth/admin-login.
+  ADMIN_LOGIN_USERNAME: z.string().default('admin'),
+  ADMIN_LOGIN_PASSWORD: z.string().default('ChangeMe123!'),
 });
 
 const parsed = envSchema.safeParse(process.env);
