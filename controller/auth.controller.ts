@@ -7,11 +7,12 @@ import {
   generateCodeChallenge,
   buildAuthorizationUrl,
   buildLogoutUrl,
+  getTokenEndpoint,
   validateIdToken,
   IDTokenValidationError,
 } from '../config/auth.util.js';
 import { env } from '../config/env.js';
-import { getOrCreateUser, issueAppToken, storeOidcState, getAndDeleteOidcState } from '../services/auth.service.js';
+import { getOrCreateUser, getOrCreateLocalAdminUser, ensureLocalAdminMember, issueAppToken, storeOidcState, getAndDeleteOidcState } from '../services/auth.service.js';
 import { AppError } from '../middleware/error-handler.js';
 
 type Response2 = globalThis.Response;
@@ -25,7 +26,9 @@ function getDynamicBackendUrl(req: Request): string {
   const mgxExternalDomain = req.headers['mgx-external-domain'] as string | undefined;
   const xForwardedHost = req.headers['x-forwarded-host'] as string | undefined;
   const host = req.headers['host'];
-  const scheme = (req.headers['x-forwarded-proto'] as string | undefined) ?? 'https';
+  const scheme =
+    (req.headers['x-forwarded-proto'] as string | undefined) ??
+    (env.NODE_ENV === 'development' ? 'http' : 'https');
 
   const effectiveHost = mgxExternalDomain || xForwardedHost || host;
   if (!effectiveHost) return env.BACKEND_URL;
@@ -48,7 +51,7 @@ export async function login(req: Request, res: Response): Promise<void> {
   const backendUrl = getDynamicBackendUrl(req);
   const redirectUri = `${backendUrl}/api/v1/auth/callback`;
 
-  const authUrl = buildAuthorizationUrl(state, nonce, codeChallenge, redirectUri);
+  const authUrl = await buildAuthorizationUrl(state, nonce, codeChallenge, redirectUri);
   res.setHeader('X-Request-ID', state);
   res.redirect(302, authUrl);
 }
@@ -59,7 +62,7 @@ export async function callback(req: Request, res: Response): Promise<void> {
 
   const redirectWithError = (message: string) => {
     const fragment = new URLSearchParams({ msg: message }).toString();
-    res.redirect(302, `${backendUrl}/auth/error?${fragment}`);
+    res.redirect(302, `${env.FRONTEND_URL}/auth/error?${fragment}`);
   };
 
   if (error) return redirectWithError(`OIDC error: ${error}`);
@@ -82,7 +85,13 @@ export async function callback(req: Request, res: Response): Promise<void> {
     };
     if (codeVerifier) tokenData.code_verifier = codeVerifier;
 
-    const tokenUrl = `${env.OIDC_ISSUER_URL}/token`;
+    let tokenUrl: string;
+    try {
+      tokenUrl = await getTokenEndpoint();
+    } catch (e) {
+      return redirectWithError(`Could not reach identity provider: ${(e as Error).message}`);
+    }
+
     let tokenResponse: Response2;
     try {
       tokenResponse = await fetch(tokenUrl, {
@@ -119,7 +128,7 @@ export async function callback(req: Request, res: Response): Promise<void> {
       token_type: 'Bearer',
     }).toString();
 
-    res.redirect(302, `${backendUrl}/auth/callback?${fragment}`);
+    res.redirect(302, `${env.FRONTEND_URL}/auth/callback?${fragment}`);
   } catch (e) {
     if (e instanceof IDTokenValidationError) {
       return redirectWithError(`Authentication failed: ${e.message}`);
@@ -183,10 +192,34 @@ export async function exchangePlatformToken(req: Request, res: Response): Promis
   res.status(200).json({ token: appToken });
 }
 
+/**
+ * Simple username/password login for the admin/librarian — an alternative to
+ * the OIDC flow above for when you don't have an identity provider set up
+ * yet. Configure real credentials via ADMIN_LOGIN_USERNAME/ADMIN_LOGIN_PASSWORD
+ * in .env; defaults are admin / ChangeMe123! (see config/env.ts).
+ */
+export async function adminLogin(req: Request, res: Response): Promise<void> {
+  const { username, password } = req.validated!.body as { username: string; password: string };
+
+  if (username !== env.ADMIN_LOGIN_USERNAME || password !== env.ADMIN_LOGIN_PASSWORD) {
+    throw new AppError(401, 'INVALID_CREDENTIALS', 'Incorrect username or password');
+  }
+
+  const user = await getOrCreateLocalAdminUser(username);
+  await ensureLocalAdminMember(user.id, user.email);
+  const { token, expiresAt } = await issueAppToken(user);
+
+  res.status(200).json({
+    token,
+    expires_at: Math.floor(expiresAt.getTime() / 1000),
+    token_type: 'Bearer',
+  });
+}
+
 export async function getCurrentUserInfo(req: Request, res: Response): Promise<void> {
   res.status(200).json(req.user);
 }
 
 export async function logout(_req: Request, res: Response): Promise<void> {
-  res.status(200).json({ redirect_url: buildLogoutUrl() });
+  res.status(200).json({ redirect_url: await buildLogoutUrl() });
 }
