@@ -68,6 +68,55 @@ export async function getOrCreateLocalAdminUser(username: string) {
   });
 }
 
+/**
+ * Also called from POST /api/v1/auth/admin-login, right after
+ * getOrCreateLocalAdminUser. That function only touches the platform-level
+ * `users` table — it does NOT by itself grant access inside the library
+ * feature set, because every library permission check
+ * (requireAdmin/resolveMember in library.service.ts) reads the *separate*
+ * `members` table instead. Without this, logging in with the admin
+ * username/password would show "awaiting librarian approval" or a
+ * registration prompt, exactly like a brand-new unapproved user — because,
+ * as far as the library domain is concerned, that's genuinely what it was.
+ *
+ * This guarantees a members row for this login is always ACTIVE + ADMIN:
+ * - If one is already linked by auth_user_id, promote/activate it.
+ * - Else if a stale row exists with the same email (e.g. from someone
+ *   accidentally self-registering while logged in this way), link and
+ *   promote that one instead of creating a duplicate.
+ * - Else create a fresh admin member record.
+ */
+export async function ensureLocalAdminMember(authUserId: string, email: string) {
+  const byAuthId = await prisma.member.findFirst({ where: { auth_user_id: authUserId } });
+  if (byAuthId) {
+    return prisma.member.update({
+      where: { id: byAuthId.id },
+      data: { role: 'ADMIN', status: 'ACTIVE' },
+    });
+  }
+
+  const byEmail = await prisma.member.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+  });
+  if (byEmail) {
+    return prisma.member.update({
+      where: { id: byEmail.id },
+      data: { auth_user_id: authUserId, role: 'ADMIN', status: 'ACTIVE' },
+    });
+  }
+
+  return prisma.member.create({
+    data: {
+      auth_user_id: authUserId,
+      email,
+      first_name: 'Administrator',
+      last_name: '',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    },
+  });
+}
+
 /** Idempotent admin bootstrap — call once at server startup. */
 export async function initializeAdminUser() {
   if (process.env.MGX_IGNORE_INIT_ADMIN) return;
